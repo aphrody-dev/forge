@@ -1,0 +1,15 @@
+{
+  "name": "@sovereign/forge",
+  "version": "1.0.0",
+  "description": "Sovereign Rust + TypeScript Local Monorepo Forge (frg)",
+  "type": "module",
+  "main": "src/cli.ts",
+  "bin": {
+    "frg": "src/cli.ts"
+  },
+  "scripts": {
+    "start": "bun run src/cli.ts serve",
+    "status": "bun run src/cli.ts status",
+    "test": "bun test"
+  }
+}
