@@ -27,6 +27,16 @@ import {
   checkAndSyncArchUpstreams,
 } from "./triforge.ts";
 import { auditFourPillars } from "./pillars.ts";
+import {
+  isFfiAvailable,
+  getDepotAbiVersion,
+  ffiGixStatus,
+  ffiJustRecipes,
+  ffiTreeSitterSymbols,
+  ffiIngestCodebase,
+  ffiGraphQuery,
+  ffiForgeRepo,
+} from "./depot_ffi.ts";
 import type { ForgeTarget } from "./types.ts";
 import { resolve } from "node:path";
 
@@ -53,6 +63,7 @@ COMMANDS:
   sync <bundle> [repo]       Verify & apply patch bundle to target repo
   verify <bundle_file>       Verify Blake3 hash integrity of a bundle file
   slim [repo]                Byte-level repository optimization (commit-graph, reflog, pack)
+  depot <subcmd>             Call Native Rust Depot FFI (version, status, just, symbols, ingest, graph, repo)
   serve [--port <port>]      Launch local Forge web dashboard & REST API (default: 4000)
   ci <repo> <command>        Execute a local CI task and record run in forge.sqlite
   review list                List all active sovereign reviews
@@ -64,6 +75,68 @@ COMMANDS:
 
 async function main() {
   switch (command) {
+    case "depot": {
+      const sub = args[1] || "status";
+      if (!isFfiAvailable()) {
+        console.error("Error: depot_ffi.dll not found or failed to load");
+        process.exit(1);
+      }
+      switch (sub) {
+        case "version": {
+          console.log(`Depot FFI ABI Version: ${getDepotAbiVersion()}`);
+          break;
+        }
+        case "status":
+        case "gix": {
+          const target = args[2] || ".";
+          console.log(JSON.stringify(ffiGixStatus(target), null, 2));
+          break;
+        }
+        case "just": {
+          const target = args[2] || "justfile";
+          console.log(JSON.stringify(ffiJustRecipes(target), null, 2));
+          break;
+        }
+        case "symbols": {
+          const target = args[2];
+          if (!target) {
+            console.error("Usage: frg depot symbols <file>");
+            process.exit(1);
+          }
+          const content = await Bun.file(target).text();
+          console.log(JSON.stringify(ffiTreeSitterSymbols(target, content), null, 2));
+          break;
+        }
+        case "ingest": {
+          const target = args[2] || ".";
+          const maxTokens = parseInt(args.slice(3).find((a) => a.startsWith("--tokens="))?.split("=")[1] || "0", 10);
+          const outline = args.includes("--outline");
+          console.log(JSON.stringify(ffiIngestCodebase(target, maxTokens, outline), null, 2));
+          break;
+        }
+        case "graph": {
+          const term = args[2];
+          if (!term) {
+            console.error("Usage: frg depot graph <term> [path]");
+            process.exit(1);
+          }
+          const target = args[3] || ".";
+          const dfs = args.includes("--dfs");
+          console.log(JSON.stringify(ffiGraphQuery(target, term, dfs), null, 2));
+          break;
+        }
+        case "repo": {
+          const owner = args[2] || "tree-sitter";
+          const repo = args[3] || "tree-sitter";
+          console.log(JSON.stringify(ffiForgeRepo(owner, repo), null, 2));
+          break;
+        }
+        default:
+          console.error(`Unknown depot subcommand: ${sub}`);
+          process.exit(1);
+      }
+      break;
+    }
     case "status": {
       const includeThirdParty = args.includes("--all") || args.includes("--third-party");
       const target = args.slice(1).find((a) => !a.startsWith("-"));

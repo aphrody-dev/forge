@@ -23,6 +23,16 @@ import {
   discoverTriForgeInventory,
   executeTriSync,
 } from "./triforge.ts";
+import {
+  isFfiAvailable,
+  getDepotAbiVersion,
+  ffiGixStatus,
+  ffiJustRecipes,
+  ffiTreeSitterSymbols,
+  ffiIngestCodebase,
+  ffiGraphQuery,
+  ffiForgeRepo,
+} from "./depot_ffi.ts";
 import type { ForgeTarget, PatchBundle } from "./types.ts";
 
 function renderHtmlDashboard(): string {
@@ -611,6 +621,54 @@ export function startForgeServer(port: number = 4000) {
             checkAndSyncArchUpstreams({ sync: Boolean(body.sync) }),
           );
         }
+      }
+
+      if (url.pathname === "/api/depot/version") {
+        const available = isFfiAvailable();
+        return Response.json({
+          ffi_available: available,
+          abi_version: available ? getDepotAbiVersion() : null,
+          engine: "Rust 2024 (depot_ffi.dll)",
+        });
+      }
+
+      if (url.pathname === "/api/depot/gix") {
+        const path = url.searchParams.get("path") || ".";
+        return Response.json(ffiGixStatus(path));
+      }
+
+      if (url.pathname === "/api/depot/just") {
+        const justfile = url.searchParams.get("justfile") || "justfile";
+        return Response.json(ffiJustRecipes(justfile));
+      }
+
+      if (url.pathname === "/api/depot/symbols" && req.method === "POST") {
+        const body = (await req.json().catch(() => ({}))) as {
+          path?: string;
+          content?: string;
+        };
+        return Response.json(ffiTreeSitterSymbols(body.path || "lib.rs", body.content || ""));
+      }
+
+      if (url.pathname === "/api/depot/ingest") {
+        const path = url.searchParams.get("path") || ".";
+        const maxTokens = parseInt(url.searchParams.get("tokens") || "0", 10);
+        const outline = url.searchParams.get("outline") === "true";
+        return Response.json(ffiIngestCodebase(path, maxTokens, outline));
+      }
+
+      if (url.pathname === "/api/depot/graph") {
+        const path = url.searchParams.get("path") || ".";
+        const term = url.searchParams.get("term") || "";
+        const dfs = url.searchParams.get("dfs") === "true";
+        const budget = parseInt(url.searchParams.get("budget") || "2000", 10);
+        return Response.json(ffiGraphQuery(path, term, dfs, budget));
+      }
+
+      if (url.pathname === "/api/depot/forge") {
+        const owner = url.searchParams.get("owner") || "tree-sitter";
+        const repo = url.searchParams.get("repo") || "tree-sitter";
+        return Response.json(ffiForgeRepo(owner, repo));
       }
 
       return new Response("Not Found", { status: 404 });
