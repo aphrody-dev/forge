@@ -9,14 +9,17 @@ import { blake3, zstdDecompress } from "./crypto.ts";
 export function exportBundleToFile(
   repoPath: string,
   repoName: string,
-  outPath?: string
+  outPath?: string,
 ): { bundle: PatchBundle; filePath: string } {
   const bundle = createPatchBundle(repoPath, repoName);
   storeBundle(bundle);
 
   const dest = outPath
     ? resolve(outPath)
-    : join(repoPath, `${bundle.header.repoName.replace(/[\/\\]/g, "_")}_${bundle.header.hash.substring(0, 10)}.frg.json`);
+    : join(
+        repoPath,
+        `${bundle.header.repoName.replace(/[\/\\]/g, "_")}_${bundle.header.hash.substring(0, 10)}.frg.json`,
+      );
 
   writeFileSync(dest, JSON.stringify(bundle, null, 2), "utf-8");
   return { bundle, filePath: dest };
@@ -24,7 +27,7 @@ export function exportBundleToFile(
 
 export function importBundleFromFile(
   bundleFilePathOrHash: string,
-  targetRepoPath: string
+  targetRepoPath: string,
 ): { success: boolean; message: string } {
   let bundle: PatchBundle | null = null;
 
@@ -33,7 +36,10 @@ export function importBundleFromFile(
       const raw = readFileSync(bundleFilePathOrHash, "utf-8");
       bundle = JSON.parse(raw);
     } catch (e: any) {
-      return { success: false, message: `Failed to parse bundle file: ${e.message}` };
+      return {
+        success: false,
+        message: `Failed to parse bundle file: ${e.message}`,
+      };
     }
   } else {
     // Try looking up by hash in SQLite
@@ -41,7 +47,10 @@ export function importBundleFromFile(
   }
 
   if (!bundle) {
-    return { success: false, message: `Bundle not found: ${bundleFilePathOrHash}` };
+    return {
+      success: false,
+      message: `Bundle not found: ${bundleFilePathOrHash}`,
+    };
   }
 
   return applyPatchBundle(targetRepoPath, bundle);

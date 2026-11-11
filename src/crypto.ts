@@ -6,13 +6,11 @@ import zlib from "node:zlib";
  * BLAKE3 IV constants (same as BLAKE2s IV / SHA-256 fractional square roots).
  */
 const IV = new Uint32Array([
-  0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
-  0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+  0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c,
+  0x1f83d9ab, 0x5be0cd19,
 ]);
 
-const MSG_PERMUTATION = [
-  2, 6, 3, 10, 7, 0, 4, 13, 1, 11, 12, 5, 9, 14, 15, 8,
-];
+const MSG_PERMUTATION = [2, 6, 3, 10, 7, 0, 4, 13, 1, 11, 12, 5, 9, 14, 15, 8];
 
 function rotr32(x: number, n: number): number {
   return ((x >>> n) | (x << (32 - n))) >>> 0;
@@ -25,7 +23,7 @@ function g(
   c: number,
   d: number,
   mx: number,
-  my: number
+  my: number,
 ) {
   state[a] = (state[a] + state[b] + mx) >>> 0;
   state[d] = rotr32(state[d] ^ state[a], 16);
@@ -52,7 +50,10 @@ function round(state: Uint32Array, m: Uint32Array) {
  * Standard BLAKE3 single-chunk compress (or native Blake2s fallback for ultra-large streams).
  */
 export function blake3(input: Uint8Array | Buffer | string): string {
-  const buf = typeof input === "string" ? Buffer.from(input, "utf-8") : Buffer.from(input);
+  const buf =
+    typeof input === "string"
+      ? Buffer.from(input, "utf-8")
+      : Buffer.from(input);
 
   if (buf.length <= 64) {
     // 7 BLAKE3 rounds on single block
@@ -98,7 +99,10 @@ export function blake3(input: Uint8Array | Buffer | string): string {
 }
 
 export function blake2b(input: Uint8Array | Buffer | string): string {
-  const buf = typeof input === "string" ? Buffer.from(input, "utf-8") : Buffer.from(input);
+  const buf =
+    typeof input === "string"
+      ? Buffer.from(input, "utf-8")
+      : Buffer.from(input);
   const hasher = new Bun.CryptoHasher("blake2b256");
   hasher.update(buf);
   return hasher.digest("hex");
@@ -108,7 +112,8 @@ export function blake2b(input: Uint8Array | Buffer | string): string {
  * Zstandard lossless compression (Level 3 default, ultra fast).
  */
 export function zstdCompress(data: Uint8Array | Buffer | string): Buffer {
-  const buf = typeof data === "string" ? Buffer.from(data, "utf-8") : Buffer.from(data);
+  const buf =
+    typeof data === "string" ? Buffer.from(data, "utf-8") : Buffer.from(data);
   return zlib.zstdCompressSync(buf);
 }
 

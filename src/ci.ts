@@ -3,7 +3,11 @@ import { spawn } from "node:child_process";
 import { recordCIRun } from "./db.ts";
 import type { CIRun } from "./types.ts";
 
-export async function executeCIRun(repoName: string, repoPath: string, command: string): Promise<CIRun> {
+export async function executeCIRun(
+  repoName: string,
+  repoPath: string,
+  command: string,
+): Promise<CIRun> {
   const startTime = performance.now();
   let stdout = "";
   let stderr = "";

@@ -3,7 +3,8 @@ import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import type { Review, CIRun, PatchBundle } from "./types.ts";
 
-const DB_PATH = process.env.FORGE_DB_PATH || join(import.meta.dir, "..", "forge.sqlite");
+const DB_PATH =
+  process.env.FORGE_DB_PATH || join(import.meta.dir, "..", "forge.sqlite");
 const db = new Database(DB_PATH, { create: true });
 
 // WAL mode for maximum concurrent read/write throughput
@@ -70,7 +71,7 @@ export function createReview(params: {
     params.sourceCommit,
     params.author,
     now,
-    now
+    now,
   );
 
   return {
@@ -89,16 +90,23 @@ export function createReview(params: {
 
 export function listReviews(repoName?: string): Review[] {
   if (repoName) {
-    const stmt = db.prepare("SELECT * FROM reviews WHERE repo_name = ? ORDER BY id DESC");
+    const stmt = db.prepare(
+      "SELECT * FROM reviews WHERE repo_name = ? ORDER BY id DESC",
+    );
     return stmt.all(repoName) as Review[];
   }
   const stmt = db.prepare("SELECT * FROM reviews ORDER BY id DESC LIMIT 50");
   return stmt.all() as Review[];
 }
 
-export function updateReviewStatus(id: number, status: Review["status"]): boolean {
+export function updateReviewStatus(
+  id: number,
+  status: Review["status"],
+): boolean {
   const now = new Date().toISOString();
-  const stmt = db.prepare("UPDATE reviews SET status = ?, updated_at = ? WHERE id = ?");
+  const stmt = db.prepare(
+    "UPDATE reviews SET status = ?, updated_at = ? WHERE id = ?",
+  );
   const result = stmt.run(status, now, id);
   return result.changes > 0;
 }
@@ -116,7 +124,7 @@ export function recordCIRun(run: Omit<CIRun, "id" | "createdAt">): CIRun {
     run.exitCode,
     run.output,
     run.durationMs,
-    now
+    now,
   );
 
   return {
@@ -128,7 +136,9 @@ export function recordCIRun(run: Omit<CIRun, "id" | "createdAt">): CIRun {
 
 export function listCIRuns(repoName?: string, limit: number = 30): CIRun[] {
   if (repoName) {
-    const stmt = db.prepare("SELECT * FROM ci_runs WHERE repo_name = ? ORDER BY id DESC LIMIT ?");
+    const stmt = db.prepare(
+      "SELECT * FROM ci_runs WHERE repo_name = ? ORDER BY id DESC LIMIT ?",
+    );
     return stmt.all(repoName, limit) as CIRun[];
   }
   const stmt = db.prepare("SELECT * FROM ci_runs ORDER BY id DESC LIMIT ?");
@@ -150,7 +160,7 @@ export function storeBundle(bundle: PatchBundle): boolean {
       bundle.header.rawBytes,
       bundle.header.compressedBytes,
       bundle.patchZstdBase64,
-      now
+      now,
     );
     return true;
   } catch {
@@ -180,6 +190,8 @@ export function getBundle(hash: string): PatchBundle | null {
 }
 
 export function listBundles(limit: number = 20): any[] {
-  const stmt = db.prepare("SELECT id, hash, repo_name, base_commit, head_commit, raw_bytes, compressed_bytes, created_at FROM bundles ORDER BY id DESC LIMIT ?");
+  const stmt = db.prepare(
+    "SELECT id, hash, repo_name, base_commit, head_commit, raw_bytes, compressed_bytes, created_at FROM bundles ORDER BY id DESC LIMIT ?",
+  );
   return stmt.all(limit);
 }

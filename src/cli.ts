@@ -1,8 +1,22 @@
 #!/usr/bin/env bun
 // Sovereign Local Forge CLI: frg
-import { scanMonorepoRepos, inspectRepo, getRepoStacks, slimRepo } from "./vcs.ts";
-import { exportBundleToFile, importBundleFromFile, verifyBundleFile } from "./bundle.ts";
-import { listReviews, createReview, updateReviewStatus, listCIRuns } from "./db.ts";
+import {
+  scanMonorepoRepos,
+  inspectRepo,
+  getRepoStacks,
+  slimRepo,
+} from "./vcs.ts";
+import {
+  exportBundleToFile,
+  importBundleFromFile,
+  verifyBundleFile,
+} from "./bundle.ts";
+import {
+  listReviews,
+  createReview,
+  updateReviewStatus,
+  listCIRuns,
+} from "./db.ts";
 import { executeCIRun } from "./ci.ts";
 import { startForgeServer } from "./server.ts";
 import { resolve } from "node:path";
@@ -46,28 +60,42 @@ async function main() {
         }
         console.log(`\nRepository: ${info.name} (${info.path})`);
         console.log(`Branch:     ${info.branch}`);
-        console.log(`Head:       ${info.headCommit.substring(0, 10)} - ${info.headMessage}`);
-        console.log(`Status:     ${info.isClean ? "Clean" : `${info.modifiedFiles} modified, ${info.untrackedFiles} untracked`}`);
+        console.log(
+          `Head:       ${info.headCommit.substring(0, 10)} - ${info.headMessage}`,
+        );
+        console.log(
+          `Status:     ${info.isClean ? "Clean" : `${info.modifiedFiles} modified, ${info.untrackedFiles} untracked`}`,
+        );
         console.log(`Jujutsu:    ${info.hasJj ? "Enabled (.jj)" : "Git only"}`);
 
         const stacks = getRepoStacks(repoPath);
         console.log(`\nStacked Changes (${stacks.length}):`);
         stacks.forEach((s) => {
           const marker = s.isWorkingCopy ? "@" : "◆";
-          console.log(`  ${marker} ${s.changeId.padEnd(12)} [${s.commitSha.substring(0, 7)}] ${s.description} (${s.author})`);
+          console.log(
+            `  ${marker} ${s.changeId.padEnd(12)} [${s.commitSha.substring(0, 7)}] ${s.description} (${s.author})`,
+          );
         });
       } else {
         console.log("Scanning C:\\src monorepo repositories...\n");
         const repos = scanMonorepoRepos("C:\\src");
-        console.log("REPO                      BRANCH             HEAD         STATUS         ENGINE");
-        console.log("--------------------------------------------------------------------------------");
+        console.log(
+          "REPO                      BRANCH             HEAD         STATUS         ENGINE",
+        );
+        console.log(
+          "--------------------------------------------------------------------------------",
+        );
         repos.forEach((r) => {
           const nameCol = r.name.padEnd(25).substring(0, 25);
           const branchCol = r.branch.padEnd(18).substring(0, 18);
           const headCol = r.headCommit.substring(0, 8).padEnd(12);
-          const statusCol = (r.isClean ? "Clean" : `${r.modifiedFiles}m / ${r.untrackedFiles}u`).padEnd(14);
+          const statusCol = (
+            r.isClean ? "Clean" : `${r.modifiedFiles}m / ${r.untrackedFiles}u`
+          ).padEnd(14);
           const engineCol = r.hasJj ? "jj" : "git";
-          console.log(`${nameCol} ${branchCol} ${headCol} ${statusCol} ${engineCol}`);
+          console.log(
+            `${nameCol} ${branchCol} ${headCol} ${statusCol} ${engineCol}`,
+          );
         });
         console.log(`\nTotal: ${repos.length} repositories scanned.`);
       }
@@ -83,12 +111,18 @@ async function main() {
       const repoPath = resolve(repoArg);
       const repoName = repoPath.split(/[\\/]/).pop() || "repo";
       const outPath = args[2];
-      const { bundle, filePath } = exportBundleToFile(repoPath, repoName, outPath);
+      const { bundle, filePath } = exportBundleToFile(
+        repoPath,
+        repoName,
+        outPath,
+      );
       console.log(`Bundle created successfully:`);
       console.log(`  File:        ${filePath}`);
       console.log(`  Blake3 Hash: ${bundle.header.hash}`);
       console.log(`  Raw Bytes:   ${bundle.header.rawBytes} bytes`);
-      console.log(`  Zstd Bytes:  ${bundle.header.compressedBytes} bytes (Ratio: ${((bundle.header.compressedBytes / Math.max(1, bundle.header.rawBytes)) * 100).toFixed(1)}%)`);
+      console.log(
+        `  Zstd Bytes:  ${bundle.header.compressedBytes} bytes (Ratio: ${((bundle.header.compressedBytes / Math.max(1, bundle.header.rawBytes)) * 100).toFixed(1)}%)`,
+      );
       break;
     }
 
@@ -121,7 +155,9 @@ async function main() {
         console.log(`[Valid Bundle] Integrity Verified!`);
         console.log(`  Repo:        ${info.repoName}`);
         console.log(`  Blake3:      ${info.hash}`);
-        console.log(`  Size:        ${info.compressedBytes} bytes compressed / ${info.rawBytes} bytes raw`);
+        console.log(
+          `  Size:        ${info.compressedBytes} bytes compressed / ${info.rawBytes} bytes raw`,
+        );
       } else {
         console.error(`[CORRUPT BUNDLE] Blake3 digest does not match header!`);
         process.exit(1);
@@ -163,7 +199,9 @@ async function main() {
       const repoName = repoPath.split(/[\\/]/).pop() || "repo";
       console.log(`[CI] Running '${cmdArg}' in ${repoName}...`);
       const run = await executeCIRun(repoName, repoPath, cmdArg);
-      console.log(`[CI] Finished with status: ${run.status.toUpperCase()} (Exit: ${run.exitCode}) in ${run.durationMs}ms`);
+      console.log(
+        `[CI] Finished with status: ${run.status.toUpperCase()} (Exit: ${run.exitCode}) in ${run.durationMs}ms`,
+      );
       if (run.exitCode !== 0) {
         console.error(run.output);
         process.exit(run.exitCode);
@@ -177,7 +215,9 @@ async function main() {
         const revs = listReviews();
         console.log(`\nActive Sovereign Reviews (${revs.length}):`);
         revs.forEach((r) => {
-          console.log(`  #${r.id} [${r.status.toUpperCase()}] ${r.repo_name} - ${r.title} (author: ${r.author})`);
+          console.log(
+            `  #${r.id} [${r.status.toUpperCase()}] ${r.repoName} - ${r.title} (author: ${r.author})`,
+          );
         });
       } else if (sub === "create") {
         const repo = args[2] || "monorepo";
@@ -194,7 +234,9 @@ async function main() {
       } else if (sub === "approve") {
         const id = parseInt(args[2] || "0", 10);
         const ok = updateReviewStatus(id, "approved");
-        console.log(ok ? `Review #${id} approved!` : `Review #${id} not found.`);
+        console.log(
+          ok ? `Review #${id} approved!` : `Review #${id} not found.`,
+        );
       }
       break;
     }

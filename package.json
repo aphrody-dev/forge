@@ -1,5 +1,5 @@
 {
-  "name": "@sovereign/forge",
+  "name": "@aphrody/forge",
   "version": "1.0.0",
   "description": "Sovereign Rust + TypeScript Local Monorepo Forge (frg)",
   "type": "module",

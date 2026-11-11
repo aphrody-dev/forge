@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { blake3, blake2b, zstdCompress, zstdDecompress } from "../src/crypto.ts";
+import {
+  blake3,
+  blake2b,
+  zstdCompress,
+  zstdDecompress,
+} from "../src/crypto.ts";
 
 describe("Sovereign Forge Crypto & Compression", () => {
   test("blake3 produces deterministic 64-char hex digest", () => {
@@ -21,7 +26,8 @@ describe("Sovereign Forge Crypto & Compression", () => {
   });
 
   test("zstd compress and decompress roundtrip", () => {
-    const original = "The quick brown fox jumps over the lazy dog repeatedly ".repeat(20);
+    const original =
+      "The quick brown fox jumps over the lazy dog repeatedly ".repeat(20);
     const compressed = zstdCompress(original);
     expect(compressed.length).toBeLessThan(Buffer.byteLength(original));
 

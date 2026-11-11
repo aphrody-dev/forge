@@ -7,7 +7,12 @@ import { blake3, zstdCompress, zstdDecompress } from "./crypto.ts";
 
 function safeExec(cmd: string, cwd: string): string {
   try {
-    return execSync(cmd, { cwd, encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"], timeout: 10000 }).trim();
+    return execSync(cmd, {
+      cwd,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 10000,
+    }).trim();
   } catch {
     return "";
   }
@@ -139,7 +144,10 @@ export function getRepoStacks(repoPath: string): StackCommit[] {
     try {
       const template =
         'commit_id ++ "||" ++ change_id ++ "||" ++ author.name() ++ "||" ++ committer.timestamp() ++ "||" ++ description.first_line() ++ "||" ++ current_working_copy ++ "||" ++ immutable ++ "||" ++ conflict ++ "\\n"';
-      const out = safeExec(`jj log -r "ancestors(@, 8)" --no-graph -T '${template}'`, repoPath);
+      const out = safeExec(
+        `jj log -r "ancestors(@, 8)" --no-graph -T '${template}'`,
+        repoPath,
+      );
       if (out) {
         const rows = out.split(/\r?\n/).filter(Boolean);
         const commits: StackCommit[] = [];
@@ -166,23 +174,29 @@ export function getRepoStacks(repoPath: string): StackCommit[] {
   }
 
   // Git log fallback
-  const gitLog = safeExec('git log -n 8 --pretty=format:"%H||%an||%ad||%s"', repoPath);
+  const gitLog = safeExec(
+    'git log -n 8 --pretty=format:"%H||%an||%ad||%s"',
+    repoPath,
+  );
   if (!gitLog) return [];
 
-  return gitLog.split(/\r?\n/).filter(Boolean).map((line, idx) => {
-    const parts = line.split("||");
-    const sha = parts[0] || "";
-    return {
-      commitSha: sha,
-      changeId: sha.substring(0, 12),
-      author: parts[1] || "developer",
-      timestamp: parts[2] || new Date().toISOString(),
-      description: parts[3] || "(no message)",
-      isWorkingCopy: idx === 0,
-      isImmutable: false,
-      hasConflict: false,
-    };
-  });
+  return gitLog
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line, idx) => {
+      const parts = line.split("||");
+      const sha = parts[0] || "";
+      return {
+        commitSha: sha,
+        changeId: sha.substring(0, 12),
+        author: parts[1] || "developer",
+        timestamp: parts[2] || new Date().toISOString(),
+        description: parts[3] || "(no message)",
+        isWorkingCopy: idx === 0,
+        isImmutable: false,
+        hasConflict: false,
+      };
+    });
 }
 
 export function getRepoDiff(repoPath: string, commit?: string): string {
@@ -192,7 +206,11 @@ export function getRepoDiff(repoPath: string, commit?: string): string {
   return safeExec("git diff HEAD", repoPath) || safeExec("git diff", repoPath);
 }
 
-export function slimRepo(repoPath: string): { bytesBefore: number; bytesAfter: number; savedBytes: number } {
+export function slimRepo(repoPath: string): {
+  bytesBefore: number;
+  bytesAfter: number;
+  savedBytes: number;
+} {
   const gitDir = join(repoPath, ".git");
   if (!existsSync(gitDir)) {
     return { bytesBefore: 0, bytesAfter: 0, savedBytes: 0 };
@@ -209,7 +227,11 @@ export function slimRepo(repoPath: string): { bytesBefore: number; bytesAfter: n
   return { bytesBefore, bytesAfter, savedBytes };
 }
 
-export function createPatchBundle(repoPath: string, repoName: string, baseRef: string = "HEAD~1"): PatchBundle {
+export function createPatchBundle(
+  repoPath: string,
+  repoName: string,
+  baseRef: string = "HEAD~1",
+): PatchBundle {
   const headSha = safeExec("git rev-parse HEAD", repoPath) || "HEAD";
   let baseSha = safeExec(`git rev-parse ${baseRef}`, repoPath);
   if (!baseSha || baseSha === headSha) {
@@ -247,32 +269,49 @@ export function createPatchBundle(repoPath: string, repoName: string, baseRef: s
   };
 }
 
-export function applyPatchBundle(repoPath: string, bundle: PatchBundle): { success: boolean; message: string } {
+export function applyPatchBundle(
+  repoPath: string,
+  bundle: PatchBundle,
+): { success: boolean; message: string } {
   const compressed = Buffer.from(bundle.patchZstdBase64, "base64");
   const computedHash = blake3(compressed);
 
   if (computedHash !== bundle.header.hash) {
-    return { success: false, message: `Integrity check failed: Blake3 mismatch (${computedHash} vs ${bundle.header.hash})` };
+    return {
+      success: false,
+      message: `Integrity check failed: Blake3 mismatch (${computedHash} vs ${bundle.header.hash})`,
+    };
   }
 
   const patchBuf = zstdDecompress(compressed);
   const patchText = patchBuf.toString("utf-8");
 
   if (!patchText.trim() || patchText.startsWith("# Forge Empty Patch")) {
-    return { success: true, message: "Empty patch bundle applied cleanly (no changes)." };
+    return {
+      success: true,
+      message: "Empty patch bundle applied cleanly (no changes).",
+    };
   }
 
   const tmpPatch = join(repoPath, `.forge_patch_${Date.now()}.patch`);
   try {
     Bun.write(tmpPatch, patchText);
-    const applyOut = safeExec(`git apply --whitespace=fix "${tmpPatch}"`, repoPath);
-    return { success: true, message: `Patch applied successfully: ${applyOut || "Clean"}` };
+    const applyOut = safeExec(
+      `git apply --whitespace=fix "${tmpPatch}"`,
+      repoPath,
+    );
+    return {
+      success: true,
+      message: `Patch applied successfully: ${applyOut || "Clean"}`,
+    };
   } catch (err: any) {
     return { success: false, message: `git apply failed: ${err.message}` };
   } finally {
     try {
       if (existsSync(tmpPatch)) {
-        execSync(`powershell -Command "Remove-Item -Force '${tmpPatch}'"`, { stdio: "ignore" });
+        execSync(`powershell -Command "Remove-Item -Force '${tmpPatch}'"`, {
+          stdio: "ignore",
+        });
       }
     } catch {
       // Ignore cleanup error

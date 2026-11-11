@@ -1,5 +1,11 @@
 // Sovereign Monorepo Forge: Web Dashboard & REST API Engine (Bun.serve)
-import { scanMonorepoRepos, getRepoStacks, getRepoDiff, slimRepo, inspectRepo } from "./vcs.ts";
+import {
+  scanMonorepoRepos,
+  getRepoStacks,
+  getRepoDiff,
+  slimRepo,
+  inspectRepo,
+} from "./vcs.ts";
 import {
   createReview,
   listReviews,
@@ -495,7 +501,9 @@ export function startForgeServer(port: number = 4000) {
         const commit = url.searchParams.get("commit") || undefined;
         if (!repoPath) return new Response("Missing repo", { status: 400 });
         const diff = getRepoDiff(repoPath, commit);
-        return new Response(diff, { headers: { "Content-Type": "text/plain" } });
+        return new Response(diff, {
+          headers: { "Content-Type": "text/plain" },
+        });
       }
 
       if (url.pathname === "/api/reviews") {
@@ -524,7 +532,11 @@ export function startForgeServer(port: number = 4000) {
         }
         if (req.method === "POST") {
           const body = await req.json();
-          const run = await executeCIRun(body.repoName, body.repoPath, body.command);
+          const run = await executeCIRun(
+            body.repoName,
+            body.repoPath,
+            body.command,
+          );
           return Response.json(run, { status: 201 });
         }
       }
@@ -542,7 +554,10 @@ export function startForgeServer(port: number = 4000) {
         if (req.method === "POST") {
           const body = (await req.json()) as PatchBundle;
           const ok = storeBundle(body);
-          return Response.json({ success: ok, hash: body.header.hash }, { status: 201 });
+          return Response.json(
+            { success: ok, hash: body.header.hash },
+            { status: 201 },
+          );
         }
       }
 
