@@ -1,7 +1,7 @@
 {
   "name": "@aphrody/forge",
-  "version": "1.0.0",
-  "description": "Sovereign Rust + TypeScript Local Monorepo Forge (frg)",
+  "version": "1.1.0",
+  "description": "Sovereign Rust + TypeScript Tri-Forge (GitHub + GitLab + Google Git + Arch Upstreams) CLI (frg)",
   "type": "module",
   "main": "src/cli.ts",
   "bin": {
@@ -10,6 +10,10 @@
   "scripts": {
     "start": "bun run src/cli.ts serve",
     "status": "bun run src/cli.ts status",
+    "remotes": "bun run src/cli.ts remotes",
+    "build": "bun build --compile src/cli.ts --outfile dist/frg.exe",
     "test": "bun test"
-  }
+  },
+  "dependencies": {},
+  "devDependencies": {}
 }

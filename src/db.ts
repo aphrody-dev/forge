@@ -1,10 +1,34 @@
 // Sovereign SQLite Store for Forge Reviews, CI & Bundles
 import { Database } from "bun:sqlite";
-import { join } from "node:path";
+import { existsSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import type { Review, CIRun, PatchBundle } from "./types.ts";
 
-const DB_PATH =
-  process.env.FORGE_DB_PATH || join(import.meta.dir, "..", "forge.sqlite");
+function resolveDbPath(): string {
+  if (process.env.FORGE_DB_PATH) {
+    return process.env.FORGE_DB_PATH;
+  }
+  const metaDir = import.meta.dir || "";
+  if (
+    metaDir.startsWith("B:\\~BUN") ||
+    metaDir.startsWith("B:/~BUN") ||
+    metaDir.includes("/$bunfs/") ||
+    metaDir.includes("\\$bunfs\\")
+  ) {
+    if (existsSync("C:\\src\\packages\\forge")) {
+      return "C:\\src\\packages\\forge\\forge.sqlite";
+    }
+    const fallbackDir = join(homedir(), ".local", "share", "aphrody-forge");
+    mkdirSync(fallbackDir, { recursive: true });
+    return join(fallbackDir, "forge.sqlite");
+  }
+  const candidate = join(metaDir, "..", "forge.sqlite");
+  mkdirSync(dirname(candidate), { recursive: true });
+  return candidate;
+}
+
+const DB_PATH = resolveDbPath();
 const db = new Database(DB_PATH, { create: true });
 
 // WAL mode for maximum concurrent read/write throughput

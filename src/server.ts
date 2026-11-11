@@ -17,7 +17,13 @@ import {
 } from "./db.ts";
 import { executeCIRun } from "./ci.ts";
 import { createPatchBundle, applyPatchBundle } from "./vcs.ts";
-import type { PatchBundle } from "./types.ts";
+import {
+  auditAndConfigureRemotes,
+  checkAndSyncArchUpstreams,
+  discoverTriForgeInventory,
+  executeTriSync,
+} from "./triforge.ts";
+import type { ForgeTarget, PatchBundle } from "./types.ts";
 
 function renderHtmlDashboard(): string {
   return `<!DOCTYPE html>
@@ -346,7 +352,7 @@ function renderHtmlDashboard(): string {
         container.innerHTML = stacks.map(s => \`
           <div class="stack-node \${s.isWorkingCopy ? 'working' : ''}">
             <span style="color: \${s.isWorkingCopy ? 'var(--success)' : 'var(--accent)'}; font-weight: bold;">
-              \${s.isWorkingCopy ? '@ (wc)' : '◆'}
+              \${s.isWorkingCopy ? '@ (wc)' : '*'}
             </span>
             <span style="color: var(--purple);">\${s.changeId}</span>
             <span style="color: var(--text-dim);">[\${s.commitSha.substring(0, 7)}]</span>
@@ -557,6 +563,52 @@ export function startForgeServer(port: number = 4000) {
           return Response.json(
             { success: ok, hash: body.header.hash },
             { status: 201 },
+          );
+        }
+      }
+
+      if (url.pathname === "/api/triforge/inventory" && req.method === "GET") {
+        return Response.json(discoverTriForgeInventory());
+      }
+
+      if (url.pathname === "/api/triforge/remotes") {
+        if (req.method === "GET") {
+          return Response.json(auditAndConfigureRemotes({ apply: false }));
+        }
+        if (req.method === "POST") {
+          const body = (await req.json().catch(() => ({}))) as {
+            apply?: boolean;
+          };
+          return Response.json(
+            auditAndConfigureRemotes({ apply: Boolean(body.apply) }),
+          );
+        }
+      }
+
+      if (url.pathname === "/api/triforge/sync" && req.method === "POST") {
+        const body = (await req.json().catch(() => ({}))) as {
+          dryRun?: boolean;
+          forge?: ForgeTarget;
+          repoFilter?: string;
+        };
+        const syncResults = executeTriSync({
+          dryRun: body.dryRun ?? true,
+          forge: body.forge ?? "all",
+          repoFilter: body.repoFilter,
+        });
+        return Response.json(syncResults);
+      }
+
+      if (url.pathname === "/api/arch-upstreams") {
+        if (req.method === "GET") {
+          return Response.json(checkAndSyncArchUpstreams({ sync: false }));
+        }
+        if (req.method === "POST") {
+          const body = (await req.json().catch(() => ({}))) as {
+            sync?: boolean;
+          };
+          return Response.json(
+            checkAndSyncArchUpstreams({ sync: Boolean(body.sync) }),
           );
         }
       }

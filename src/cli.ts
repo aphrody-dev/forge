@@ -19,6 +19,15 @@ import {
 } from "./db.ts";
 import { executeCIRun } from "./ci.ts";
 import { startForgeServer } from "./server.ts";
+import {
+  auditAndConfigureRemotes,
+  initializeGitLabForge,
+  initializeGoogleGitForge,
+  executeTriSync,
+  checkAndSyncArchUpstreams,
+} from "./triforge.ts";
+import { auditFourPillars } from "./pillars.ts";
+import type { ForgeTarget } from "./types.ts";
 import { resolve } from "node:path";
 
 const args = process.argv.slice(2);
@@ -26,14 +35,20 @@ const command = args[0] || "help";
 
 function printHelp() {
   console.log(`
-FRG // Sovereign Monorepo Forge CLI (v1.0.0)
-Architecture: Jujutsu (jj) + Gitoxide (gix) + Radicle + Pure Bun 1.4.4
+FRG // Sovereign Monorepo Tri-Forge CLI (v1.1.0)
+Architecture: Jujutsu (jj) + Gitoxide (gix) + Tri-Forge (GitHub + GitLab + Google Git) + Pure Bun 1.4.4
 
 USAGE:
   frg <command> [arguments]
 
 COMMANDS:
-  status [repo]              Inspect all C:\\src repositories or a single repo stack
+  status [repo] [--all]      Inspect all canonical C:\\src repositories (or --all incl. third_party)
+  pillars [--json]           Audit 4-pillar VCS governance (Git + Chromium DEPS + Kernel MAINTAINERS + AOSP repo)
+  remotes [--apply] [--json] Audit or idempotently apply origin/gitlab/google remotes on all 26 repos
+  gitlab-init [--dry-run]    Provision aphrody-dev GitLab group/projects, protections & Pacman/OCI registries
+  google-git-init [--dry-run] Configure GCP 'aphrody' Developer Connect, Source Repos & credential helper
+  tri-sync [flags]           Push main & dev across forges (--dry-run, --forge github|gitlab|google|all)
+  arch-upstreams [--sync]    Audit & fetch Arch Linux GitLab, CachyOS & Omacom/Omarchy upstreams
   bundle <repo> [out]        Export content-addressed Blake3 + Zstd patch bundle
   sync <bundle> [repo]       Verify & apply patch bundle to target repo
   verify <bundle_file>       Verify Blake3 hash integrity of a bundle file
@@ -50,7 +65,8 @@ COMMANDS:
 async function main() {
   switch (command) {
     case "status": {
-      const target = args[1];
+      const includeThirdParty = args.includes("--all") || args.includes("--third-party");
+      const target = args.slice(1).find((a) => !a.startsWith("-"));
       if (target) {
         const repoPath = resolve(target);
         const info = inspectRepo(repoPath);
@@ -71,14 +87,14 @@ async function main() {
         const stacks = getRepoStacks(repoPath);
         console.log(`\nStacked Changes (${stacks.length}):`);
         stacks.forEach((s) => {
-          const marker = s.isWorkingCopy ? "@" : "◆";
+          const marker = s.isWorkingCopy ? "@" : "*";
           console.log(
             `  ${marker} ${s.changeId.padEnd(12)} [${s.commitSha.substring(0, 7)}] ${s.description} (${s.author})`,
           );
         });
       } else {
         console.log("Scanning C:\\src monorepo repositories...\n");
-        const repos = scanMonorepoRepos("C:\\src");
+        const repos = scanMonorepoRepos("C:\\src", { includeThirdParty });
         console.log(
           "REPO                      BRANCH             HEAD         STATUS         ENGINE",
         );
@@ -238,6 +254,224 @@ async function main() {
           ok ? `Review #${id} approved!` : `Review #${id} not found.`,
         );
       }
+      break;
+    }
+
+    case "remotes": {
+      const apply = args.includes("--apply");
+      const asJson = args.includes("--json");
+      const entries = auditAndConfigureRemotes({ apply });
+
+      if (asJson) {
+        console.log(JSON.stringify(entries, null, 2));
+        break;
+      }
+
+      console.log(
+        `Tri-Forge Remote Topology (${apply ? "APPLIED" : "AUDIT"}) across ${entries.length} canonical repositories:\n`,
+      );
+      console.log(
+        "REPO                 PATH                      ORIGIN   GITLAB   GOOGLE   FANOUT(all)",
+      );
+      console.log(
+        "--------------------------------------------------------------------------------------",
+      );
+      for (const e of entries) {
+        const repoCol = e.name.padEnd(20).substring(0, 20);
+        const pathCol = e.relPath.padEnd(25).substring(0, 25);
+        const origCol = (e.originAligned ? "OK" : "MISS").padEnd(8);
+        const glCol = (e.gitlabAligned ? "OK" : "MISS").padEnd(8);
+        const gcpCol = (e.googleAligned ? "OK" : "MISS").padEnd(8);
+        const allCol =
+          e.allPushUrls.length > 0 ? `${e.allPushUrls.length} urls` : "MISS";
+        console.log(
+          `${repoCol} ${pathCol} ${origCol} ${glCol} ${gcpCol} ${allCol}`,
+        );
+        for (const act of e.appliedActions) {
+          console.log(`  -> ${act}`);
+        }
+      }
+      const alignedCount = entries.filter(
+        (e) => e.originAligned && e.gitlabAligned && e.googleAligned,
+      ).length;
+      console.log(
+        `\nSummary: ${alignedCount}/${entries.length} repositories aligned across GitHub (origin), GitLab (gitlab), and Google Git (google).`,
+      );
+      break;
+    }
+
+    case "gitlab-init": {
+      const dryRun = args.includes("--dry-run");
+      const asJson = args.includes("--json");
+      const res = await initializeGitLabForge({ dryRun });
+      if (asJson) {
+        console.log(JSON.stringify(res, null, 2));
+        break;
+      }
+      console.log(
+        `[GitLab Tri-Forge Init] Mode: ${res.mode} | Base: ${res.baseUrl}/${res.group}`,
+      );
+      console.log(
+        `  Sovereign Self-Hosted: ${res.selfHostedBaseUrl} (Owner: ${res.orgOwnerEmail})`,
+      );
+      console.log(
+        `  Token Configured:      ${res.tokenPresent ? "yes (GITLAB_TOKEN)" : "no (deterministic plan generated)"}`,
+      );
+      console.log(
+        `  Protected Branches:    ${res.protectedBranches.join(", ")}`,
+      );
+      console.log(
+        `  Registries:            ${res.registriesEnabled.join(", ")}`,
+      );
+      console.log(
+        `  Projects:              ${res.projectsProvisioned}/${res.projectsPlanned} provisioned`,
+      );
+      console.log("\nActions:");
+      for (const act of res.actions) {
+        console.log(`  - ${act}`);
+      }
+      break;
+    }
+
+    case "google-git-init": {
+      const dryRun = args.includes("--dry-run");
+      const asJson = args.includes("--json");
+      const res = initializeGoogleGitForge({ dryRun });
+      if (asJson) {
+        console.log(JSON.stringify(res, null, 2));
+        break;
+      }
+      console.log(
+        `[Google Cloud Git Init] Mode: ${res.mode} | Project: ${res.gcpProjectId} (#${res.gcpProjectNumber})`,
+      );
+      console.log(`  Developer Connect:     ${res.developerConnectConnection}`);
+      console.log(
+        `  Credential Helper:     ${res.credentialHelperConfigured ? "configured" : "planned"}`,
+      );
+      console.log(
+        `  gcloud Configs:        ${res.gcloudConfigsChecked.join(", ")}`,
+      );
+      console.log(`  Repositories Planned:  ${res.repositoriesPlanned}`);
+      for (const note of res.notes) {
+        console.log(`  Note: ${note}`);
+      }
+      if (dryRun) {
+        console.log("\nProvisioning Commands:");
+        for (const cmd of res.commands.slice(0, 8)) {
+          console.log(`  $ ${cmd}`);
+        }
+        if (res.commands.length > 8) {
+          console.log(
+            `  ... (${res.commands.length - 8} additional gcloud source repos create commands)`,
+          );
+        }
+      }
+      break;
+    }
+
+    case "tri-sync": {
+      const dryRun = args.includes("--dry-run");
+      const asJson = args.includes("--json");
+      let forge: ForgeTarget = "all";
+      const forgeIdx = args.indexOf("--forge");
+      if (forgeIdx !== -1 && args[forgeIdx + 1]) {
+        const val = args[forgeIdx + 1] as ForgeTarget;
+        if (["github", "gitlab", "google", "all"].includes(val)) {
+          forge = val;
+        } else {
+          console.error(
+            `Invalid --forge '${val}'. Expected: github | gitlab | google | all`,
+          );
+          process.exit(1);
+        }
+      }
+      let repoFilter: string | undefined;
+      const repoIdx = args.indexOf("--repo");
+      if (repoIdx !== -1 && args[repoIdx + 1]) {
+        repoFilter = args[repoIdx + 1];
+      }
+
+      const results = executeTriSync({ dryRun, forge, repoFilter });
+      if (asJson) {
+        console.log(JSON.stringify(results, null, 2));
+        break;
+      }
+
+      console.log(
+        `[Tri-Forge Sync] Target: ${forge.toUpperCase()} | Mode: ${dryRun ? "DRY-RUN" : "LIVE PUSH"} | Repos: ${results.length}\n`,
+      );
+      for (const r of results) {
+        const branchLabel =
+          r.branches.length > 0 ? r.branches.join(",") : "none";
+        console.log(`${r.repo.padEnd(20)} [branches: ${branchLabel}]`);
+        for (const [fKey, fStatus] of Object.entries(r.perForge)) {
+          console.log(
+            `  - ${fKey.padEnd(7)} (${fStatus.status.padEnd(7)}): ${fStatus.message}`,
+          );
+        }
+      }
+      break;
+    }
+
+    case "arch-upstreams": {
+      const sync = args.includes("--sync");
+      const asJson = args.includes("--json");
+      const statuses = checkAndSyncArchUpstreams({ sync });
+      if (asJson) {
+        console.log(JSON.stringify(statuses, null, 2));
+        break;
+      }
+
+      console.log(
+        `[Arch / CachyOS / Omarchy Upstreams] Mode: ${sync ? "FETCH SYNC" : "AUDIT"} (${statuses.length} tracked repos)\n`,
+      );
+      console.log(
+        "ECOSYSTEM   UPSTREAM ID                                  CLONED  HEAD          STATUS",
+      );
+      console.log(
+        "----------------------------------------------------------------------------------------------------",
+      );
+      for (const s of statuses) {
+        const ecoCol = s.ecosystem.padEnd(11);
+        const idCol = s.id.padEnd(44).substring(0, 44);
+        const clonedCol = (s.cloned ? "YES" : "NO").padEnd(7);
+        const headCol = (s.headCommit || "-").padEnd(13);
+        console.log(
+          `${ecoCol} ${idCol} ${clonedCol} ${headCol} ${s.statusMessage}`,
+        );
+      }
+      break;
+    }
+
+    case "pillars": {
+      const asJson = args.includes("--json");
+      const report = auditFourPillars("C:\\src");
+      if (asJson) {
+        console.log(JSON.stringify(report, null, 2));
+        if (!report.allHealthy) process.exit(1);
+        break;
+      }
+
+      console.log(
+        `[4-Pillar VCS Governance Audit] Root: ${report.srcRoot} | Junctions: ${report.rootJunctionCount} (${report.danglingJunctions.length} dangling)\n`,
+      );
+      console.log(
+        "PILLAR      STATUS  HEAD          REMOTES   SUMMARY",
+      );
+      console.log(
+        "----------------------------------------------------------------------------------------",
+      );
+      for (const p of Object.values(report.pillars)) {
+        const nameCol = p.pillar.toUpperCase().padEnd(11);
+        const stCol = (p.healthy ? "OK" : "FAIL").padEnd(7);
+        const headCol = (p.headCommit ? p.headCommit.substring(0, 10) : "-").padEnd(13);
+        const remCol = `${Object.keys(p.remotes).length} rem`.padEnd(9);
+        console.log(`${nameCol} ${stCol} ${headCol} ${remCol} ${p.details.join("; ")}`);
+      }
+      console.log(
+        `\nOverall Status: ${report.allHealthy ? "PASS (Git + Chromium + Kernel + AOSP aligned)" : "FAIL"}`,
+      );
+      if (!report.allHealthy) process.exit(1);
       break;
     }
 

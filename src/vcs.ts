@@ -1,5 +1,5 @@
 // Sovereign VCS Adapter: Jujutsu (jj), Gitoxide (gix), and Git integration
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
 import type { RepoInfo, StackCommit, PatchBundle } from "./types.ts";
@@ -44,14 +44,89 @@ export function isVcsRepo(dir: string): boolean {
   return existsSync(join(dir, ".git")) || existsSync(join(dir, ".jj"));
 }
 
-export function inspectRepo(dir: string, name?: string): RepoInfo | null {
+function resolveGitDir(repoDir: string): string | null {
+  const dotGit = join(repoDir, ".git");
+  if (!existsSync(dotGit)) return null;
+  try {
+    const st = statSync(dotGit);
+    if (st.isDirectory()) return dotGit;
+    if (st.isFile()) {
+      const content = readFileSync(dotGit, "utf-8").trim();
+      const m = content.match(/^gitdir:\s*(.+)$/);
+      if (m && m[1]) {
+        return join(repoDir, m[1].trim());
+      }
+    }
+  } catch {
+    // Ignore
+  }
+  return null;
+}
+
+function readHeadFast(repoDir: string): { branch: string; sha: string } | null {
+  const gitDir = resolveGitDir(repoDir);
+  if (!gitDir) return null;
+  try {
+    const headRaw = readFileSync(join(gitDir, "HEAD"), "utf-8").trim();
+    if (headRaw.startsWith("ref:")) {
+      const refPath = headRaw.replace(/^ref:\s*/, "").trim();
+      const branch = refPath.replace(/^refs\/heads\//, "");
+      const looseRef = join(gitDir, refPath);
+      if (existsSync(looseRef)) {
+        const sha = readFileSync(looseRef, "utf-8").trim();
+        if (/^[0-9a-f]{40}$/i.test(sha)) return { branch, sha };
+      }
+      const packedRefs = join(gitDir, "packed-refs");
+      if (existsSync(packedRefs)) {
+        for (const line of readFileSync(packedRefs, "utf-8").split(/\r?\n/)) {
+          if (line.endsWith(` ${refPath}`)) {
+            const sha = line.split(/\s+/)[0] || "";
+            if (/^[0-9a-f]{40}$/i.test(sha)) return { branch, sha };
+          }
+        }
+      }
+      return { branch, sha: "" };
+    }
+    if (/^[0-9a-f]{40}$/i.test(headRaw)) {
+      return { branch: "detached", sha: headRaw };
+    }
+  } catch {
+    // Fallback to git CLI
+  }
+  return null;
+}
+
+export function inspectRepo(
+  dir: string,
+  name?: string,
+  options?: { fast?: boolean },
+): RepoInfo | null {
   if (!isVcsRepo(dir)) return null;
   const repoName = name || dir.split(/[\\/]/).pop() || "unknown";
   const hasJj = existsSync(join(dir, ".jj"));
+  const fastHead = readHeadFast(dir);
 
-  // Combined status command: gets branch and changed files in a single process spawn
-  const statusOutput = safeExec("git status --porcelain=v1 -b", dir);
-  let branch = "main";
+  if (options?.fast && fastHead && fastHead.sha) {
+    return {
+      name: repoName,
+      path: dir,
+      branch: fastHead.branch,
+      headCommit: fastHead.sha,
+      headMessage: "HEAD",
+      isClean: true,
+      hasJj,
+      modifiedFiles: 0,
+      untrackedFiles: 0,
+      lastChecked: new Date().toISOString(),
+    };
+  }
+
+  // Combined status command (`--ignore-submodules=all` avoids O(N) nested submodule walks on root superproject)
+  const statusOutput = safeExec(
+    "git --no-optional-locks status --porcelain=v1 -b --ignore-submodules=all",
+    dir,
+  );
+  let branch = fastHead?.branch || "main";
   let modifiedFiles = 0;
   let untrackedFiles = 0;
 
@@ -69,7 +144,7 @@ export function inspectRepo(dir: string, name?: string): RepoInfo | null {
 
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i];
-      if (line.startsWith("??")) {
+      if (line && line.startsWith("??")) {
         untrackedFiles++;
       } else {
         modifiedFiles++;
@@ -77,11 +152,10 @@ export function inspectRepo(dir: string, name?: string): RepoInfo | null {
     }
   }
 
-  // Combined commit info: gets HEAD SHA and message in a single process spawn
-  const logOutput = safeExec('git log -1 --pretty=format:"%H||%s"', dir);
-  let headCommit = "0000000000000000000000000000000000000000";
+  let headCommit = fastHead?.sha || "0000000000000000000000000000000000000000";
   let headMessage = "Initial commit";
 
+  const logOutput = safeExec('git --no-optional-locks log -1 --pretty=format:"%H||%s"', dir);
   if (logOutput) {
     const [sha, msg] = logOutput.split("||");
     if (sha) headCommit = sha;
@@ -102,38 +176,116 @@ export function inspectRepo(dir: string, name?: string): RepoInfo | null {
   };
 }
 
-export function scanMonorepoRepos(srcRoot: string = "C:\\src"): RepoInfo[] {
-  const repos: RepoInfo[] = [];
-  const knownNested = ["vcs", "vercel", "cloudflare", "microsoft"];
+function isReparseOrSymlink(p: string): boolean {
   try {
-    const topLevel = readdirSync(srcRoot, { withFileTypes: true });
-    for (const entry of topLevel) {
-      if (!entry.isDirectory()) continue;
-      if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+    return lstatSync(p).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
 
-      const fullPath = join(srcRoot, entry.name);
-      if (knownNested.includes(entry.name)) {
-        try {
-          const subDirs = readdirSync(fullPath, { withFileTypes: true });
-          for (const sub of subDirs) {
-            if (!sub.isDirectory() || sub.name.startsWith(".")) continue;
-            const subPath = join(fullPath, sub.name);
-            if (isVcsRepo(subPath)) {
-              const info = inspectRepo(subPath, `${entry.name}/${sub.name}`);
-              if (info) repos.push(info);
-            }
+export function scanMonorepoRepos(
+  srcRoot: string = "C:\\src",
+  options?: { includeThirdParty?: boolean; fast?: boolean },
+): RepoInfo[] {
+  const repos: RepoInfo[] = [];
+  const seenPaths = new Set<string>();
+  const fast = options?.fast;
+
+  if (isVcsRepo(srcRoot)) {
+    const rootInfo = inspectRepo(srcRoot, "src", { fast });
+    if (rootInfo) {
+      repos.push(rootInfo);
+      seenPaths.add(srcRoot.toLowerCase());
+    }
+  }
+
+  const canonicalTiers = ["apps", "packages", "crates", "tools"];
+  for (const tier of canonicalTiers) {
+    const tierPath = join(srcRoot, tier);
+    if (!existsSync(tierPath) || isReparseOrSymlink(tierPath)) continue;
+    try {
+      const subDirs = readdirSync(tierPath, { withFileTypes: true });
+      for (const sub of subDirs) {
+        if (sub.name.startsWith(".")) continue;
+        const subPath = join(tierPath, sub.name);
+        if (isReparseOrSymlink(subPath) || !sub.isDirectory()) continue;
+        if (isVcsRepo(subPath) && !seenPaths.has(subPath.toLowerCase())) {
+          const info = inspectRepo(subPath, `${tier}/${sub.name}`, { fast });
+          if (info) {
+            repos.push(info);
+            seenPaths.add(subPath.toLowerCase());
           }
-        } catch {
-          // Skip inaccessible subfolders
         }
-      } else if (isVcsRepo(fullPath)) {
-        const info = inspectRepo(fullPath, entry.name);
-        if (info) repos.push(info);
+      }
+    } catch {
+      // Skip inaccessible subfolders
+    }
+  }
+
+  const infraPath = join(srcRoot, "infra");
+  if (existsSync(infraPath) && !isReparseOrSymlink(infraPath)) {
+    if (isVcsRepo(infraPath) && !seenPaths.has(infraPath.toLowerCase())) {
+      const info = inspectRepo(infraPath, "infra", { fast });
+      if (info) {
+        repos.push(info);
+        seenPaths.add(infraPath.toLowerCase());
       }
     }
-  } catch {
-    // Return empty on failure
+    const meshVnPath = join(infraPath, "mesh-vn");
+    if (
+      existsSync(meshVnPath) &&
+      !isReparseOrSymlink(meshVnPath) &&
+      isVcsRepo(meshVnPath) &&
+      !seenPaths.has(meshVnPath.toLowerCase())
+    ) {
+      const info = inspectRepo(meshVnPath, "infra/mesh-vn", { fast });
+      if (info) {
+        repos.push(info);
+        seenPaths.add(meshVnPath.toLowerCase());
+      }
+    }
   }
+
+  if (options?.includeThirdParty) {
+    const tpRoot = join(srcRoot, "third_party");
+    const walkTp = (dir: string, depth: number) => {
+      if (depth > 3 || !existsSync(dir) || isReparseOrSymlink(dir)) return;
+      try {
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+          if (
+            entry.name.startsWith(".") ||
+            entry.name === "node_modules" ||
+            entry.name === "target" ||
+            entry.name === "yolo-archive"
+          ) {
+            continue;
+          }
+          const p = join(dir, entry.name);
+          if (isReparseOrSymlink(p) || !entry.isDirectory()) continue;
+          if (isVcsRepo(p)) {
+            if (!seenPaths.has(p.toLowerCase())) {
+              const rel = p
+                .substring(srcRoot.length)
+                .replace(/^[\\/]+/, "")
+                .replace(/\\/g, "/");
+              const info = inspectRepo(p, rel, { fast: true });
+              if (info) {
+                repos.push(info);
+                seenPaths.add(p.toLowerCase());
+              }
+            }
+          } else {
+            walkTp(p, depth + 1);
+          }
+        }
+      } catch {
+        // Ignore
+      }
+    };
+    walkTp(tpRoot, 1);
+  }
+
   return repos;
 }
 
